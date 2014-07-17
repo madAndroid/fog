@@ -3,9 +3,8 @@ require 'fog/google/core'
 module Fog
   module Compute
     class Google < Fog::Service
-
       requires :google_project
-      recognizes :app_name, :app_version, :google_client_email, :google_key_location, :google_client
+      recognizes :app_name, :app_version, :google_client_email, :google_key_location, :google_key_string, :google_client
 
       request_path 'fog/google/requests/compute'
       request :list_servers
@@ -14,6 +13,8 @@ module Fog
       request :list_aggregated_addresses
       request :list_disks
       request :list_aggregated_disks
+      request :list_disk_types
+      request :list_aggregated_disk_types
       request :list_firewalls
       request :list_images
       request :list_machine_types
@@ -33,6 +34,7 @@ module Fog
       request :get_server
       request :get_address
       request :get_disk
+      request :get_disk_type
       request :get_firewall
       request :get_image
       request :get_machine_type
@@ -110,6 +112,9 @@ module Fog
       model :disk
       collection :disks
 
+      model :disk_type
+      collection :disk_types
+
       model :address
       collection :addresses
 
@@ -179,23 +184,6 @@ module Fog
           response
         end
 
-        def backoff_if_unfound(&block)
-          retries_remaining = 10
-          sleep_time = 0.1
-          begin
-            result = block.call
-          rescue Exception => msg
-            if msg.to_s.include? 'was not found' and retries_remaining > 0
-              retries_remaining -= 1
-              sleep sleep_time
-              sleep_time *= 1.6
-              retry
-            else
-              raise msg
-            end
-          end
-          result
-        end
       end
 
       class Mock
@@ -214,61 +202,6 @@ module Fog
         def self.data(api_version)
           @data ||= Hash.new do |hash, key|
             case key
-            when 'google'
-              hash[key] = {
-                :images => {
-                  "centos-6-2-v20120621" => {
-                    "kind" => "compute#image",
-                    "selfLink" => "https://www.googleapis.com/compute/#{api_version}/projects/google/global/images/centos-6-2-v20120621",
-                    "id" => "12920641029336858796",
-                    "creationTimestamp" => "2012-06-21T22:59:56.392-07:00",
-                    "name" => "centos-6-2-v20120621",
-                    "description" => "CentOS 6.2; Created Thu, 21 Jun 2012 14:22:21 +0000",
-                    "sourceType" => "RAW",
-                    "rawDisk" => {
-                      "containerType" => "TAR",
-                      "source" => ""
-                    },
-                    "deprecated" => {
-                      "state" => "DELETED",
-                      "replacement" => "https://www.googleapis.com/compute/#{api_version}/projects/google/global/images/centos-6-v20130104"
-                    },
-                    "status" => "READY"
-                  },
-                  "centos-6-v20120912" => {
-                    "kind" => "compute#image",
-                    "selfLink" => "https://www.googleapis.com/compute/#{api_version}/projects/google/global/images/centos-6-v20120912",
-                    "id" => "12994279803511049620",
-                    "creationTimestamp" => "2012-09-18T08:52:47.584-07:00",
-                    "name" => "centos-6-v20120912",
-                    "description" => "CentOS 6; Created Wed, 12 Sep 2012 00:00:00 +0000",
-                    "sourceType" => "RAW",
-                    "rawDisk" => {
-                      "containerType" => "TAR",
-                      "source" => ""
-                    },
-                    "deprecated" => {
-                      "state" => "DEPRECATED",
-                      "replacement" => "https://www.googleapis.com/compute/#{api_version}/projects/google/global/images/centos-6-v20130104"
-                    },
-                    "status" => "READY"
-                  },
-                  "centos-6-v20121106" => {
-                    "kind" => "compute#image",
-                    "selfLink" => "https://www.googleapis.com/compute/#{api_version}/projects/google/global/images/centos-6-v20121106",
-                    "id" => "13037720516378381209",
-                    "creationTimestamp" => "2012-11-09T11:40:41.079-08:00",
-                    "name" => "centos-6-v20121106",
-                    "description" => "SCSI-enabled CentOS 6; Created Tue, 06 Nov 2012 00:00:00 +0000",
-                    "sourceType" => "RAW",
-                    "rawDisk" => {
-                      "containerType" => "TAR",
-                      "source" => ""
-                    },
-                    "status" => "READY"
-                  }
-                }
-              }
             when 'debian-cloud'
               hash[key] = {
                 :images => {
@@ -872,7 +805,8 @@ module Fog
                     "sizeGb" => "10",
                     "selfLink" => "https://www.googleapis.com/compute/#{api_version}/projects/#{key}/zones/us-central1-a/disks/fog-1",
                     "sourceImage" => "https://www.googleapis.com/compute/#{api_version}/projects/debian-cloud/global/images/debian-7-wheezy-v20131120",
-                    "sourceImageId" => "17312518942796567788"
+                    "sourceImageId" => "17312518942796567788",
+                    "type" => "https://www.googleapis.com/compute/#{api_version}/projects/#{key}/zones/us-central1-a/diskTypes/pd-standard",
                   },
                   "fog-2" => {
                     "kind" => "compute#disk",
@@ -882,7 +816,8 @@ module Fog
                     "status" => "READY",
                     "name" => "fog-2",
                     "sizeGb" => "10",
-                    "selfLink" => "https://www.googleapis.com/compute/#{api_version}/projects/#{key}/zones/us-central1-a/disks/fog-1"
+                    "selfLink" => "https://www.googleapis.com/compute/#{api_version}/projects/#{key}/zones/us-central1-a/disks/fog-1",
+                    "type" => "https://www.googleapis.com/compute/#{api_version}/projects/#{key}/zones/us-central1-a/diskTypes/pd-ssd",
                   }
                 },
                 :operations => {}
@@ -917,7 +852,6 @@ module Fog
         attr_reader :compute, :api_url
 
         def initialize(options)
-
           # NOTE: loaded here to avoid requiring this as a core Fog dependency
           begin
             require 'google/api_client'
@@ -932,14 +866,20 @@ module Fog
           end
 
           if @client.nil?
-            if !options[:google_client_email].nil? and !options[:google_key_location].nil?
+            if !options[:google_key_location].nil?
+              google_key = File.expand_path(options[:google_key_location])
+            elsif !options[:google_key_string].nil?
+              google_key = options[:google_key_string]
+            end
+
+            if !options[:google_client_email].nil? and !google_key.nil?
               @client = self.new_pk12_google_client(
                 options[:google_client_email],
-                File.expand_path(options[:google_key_location]),
+                google_key,
                 options[:app_name],
                 options[:app_verion])
             else
-              Fog::Logger.debug("Fog::Compute::Google.client has not been initialized nor are the :google_client_email and :google_key_location options set, so we can not create one for you.")
+              Fog::Logger.debug("Fog::Compute::Google.client has not been initialized nor are the :google_client_email and :google_key_location or :google_key_string options set, so we can not create one for you.")
               raise ArgumentError.new("No Google API Client has been initialized.")
             end
           end
@@ -957,12 +897,12 @@ module Fog
         # Public: Create a Google::APIClient with a pkcs12 key and a user email.
         #
         # google_client_email - an @developer.gserviceaccount.com email address to use.
-        # google_key_location - an absolute location to a pkcs12 key file.
+        # google_key - an absolute location to a pkcs12 key file or the content of the file itself.
         # app_name - an optional string to set as the app name in the user agent.
         # app_version - an optional string to set as the app version in the user agent.
         #
         # Returns a new Google::APIClient
-        def new_pk12_google_client(google_client_email, google_key_location, app_name=nil, app_version=nil)
+        def new_pk12_google_client(google_client_email, google_key, app_name=nil, app_version=nil)
           # The devstorage scope is needed to be able to insert images
           # devstorage.read_only scope is not sufficient like you'd hope
           api_scope_url = 'https://www.googleapis.com/auth/compute https://www.googleapis.com/auth/devstorage.read_write'
@@ -981,7 +921,7 @@ module Fog
           }
           local_client = ::Google::APIClient.new(api_client_options)
 
-          key = ::Google::APIClient::KeyUtils.load_from_pkcs12(google_key_location, 'notasecret')
+          key = ::Google::APIClient::KeyUtils.load_from_pkcs12(google_key, 'notasecret')
 
           local_client.authorization = Signet::OAuth2::Client.new({
             :audience => 'https://accounts.google.com/o/oauth2/token',
@@ -1021,7 +961,6 @@ module Fog
       end
 
       RUNNING = 'RUNNING'
-
     end
   end
 end

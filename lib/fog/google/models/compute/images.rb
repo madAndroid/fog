@@ -4,17 +4,16 @@ require 'fog/google/models/compute/image'
 module Fog
   module Compute
     class Google
-
       class Images < Fog::Collection
-
         model Fog::Compute::Google::Image
 
         # NOTE: Not everyone has access to these projects because of the
         # licenses needed to use some of them.
         # https://developers.google.com/compute/docs/premium-operating-systems
         GLOBAL_PROJECTS = [
-          'debian-cloud',
           'centos-cloud',
+          'debian-cloud',
+          'google-containers',
           'rhel-cloud',
           'suse-cloud'
         ]
@@ -64,7 +63,6 @@ module Fog
 
           new(data)
         end
-
       end
     end
   end
